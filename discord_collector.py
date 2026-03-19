@@ -44,28 +44,28 @@ CATEGORY_KEYWORDS = {
     "bug": [
         # English
         "bug", "crash", "error", "broken", "glitch", "freeze", "stuck",
-        "disconnect", "lag", "failed", "not working", "@Undecember",
+        "disconnect", "lag", "failed", "not working",
 
         # Russian
         "баг", "ошибка", "вылет", "зависает", "лагает", "не работает",
-        "сломано", "отключается", "@Undecember",
+        "сломано", "отключается",
 
         # Chinese Simplified / Traditional
         "错误", "錯誤", "闪退", "閃退", "卡顿", "卡頓", "崩溃", "崩潰",
         "无法进入", "無法進入", "进不去", "進不去", "无法加载", "無法加載",
-        "断线", "斷線", "掉线", "掉線", "@Undecember"
+        "断线", "斷線", "掉线", "掉線"
     ],
     "issue": [
         # English
         "problem", "concern", "complaint", "unfair", "pay to win", "p2w",
-        "balance", "matchmaking", "too hard", "too easy", "delay", "@Undecember",
+        "balance", "matchmaking", "too hard", "too easy", "delay",
 
         # Russian
         "проблема", "жалоба", "нечестно", "баланс", "слишком сложно",
-        "слишком легко", "@Undecember",
+        "слишком легко",
 
         # Chinese Simplified / Traditional
-        "问题", "問題", "不公平", "平衡", "匹配", "太难", "太難", "太简单", "太簡單", "@Undecember"
+        "问题", "問題", "不公平", "平衡", "匹配", "太难", "太難", "太简单", "太簡單"
     ],
     "positive": [
         # English
