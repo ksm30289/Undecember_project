@@ -3,6 +3,7 @@ import json
 import sqlite3
 import discord
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -254,7 +255,7 @@ async def on_message(message):
     category, matched_keywords = classify_message(original_text)
 
     row = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),      # A 수집시간
+        datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S"),      # A 수집시간
         str(message.guild.name) if message.guild else "",  # B 서버명
         str(message.channel.name),                         # C 채널명
         str(message.author),                               # D 작성자
@@ -281,7 +282,7 @@ async def on_message(message):
             category=category,
             matched_keywords=", ".join(matched_keywords),
             created_at=str(message.created_at),
-            collected_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            collected_at=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         append_to_sheet(row)
