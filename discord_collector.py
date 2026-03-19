@@ -12,6 +12,8 @@ from langdetect import detect, DetectorFactory
 
 DetectorFactory.seed = 0
 
+KST = ZoneInfo("Asia/Seoul")
+
 # =====================
 # 환경 변수
 # =====================
@@ -19,7 +21,16 @@ DetectorFactory.seed = 0
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
 
-# 여러 채널
+if not DISCORD_TOKEN:
+    raise RuntimeError("환경변수 DISCORD_TOKEN이 설정되지 않았습니다.")
+
+if not GOOGLE_CREDENTIALS:
+    raise RuntimeError("환경변수 GOOGLE_CREDENTIALS가 설정되지 않았습니다.")
+
+# =====================
+# 수집 대상 채널
+# =====================
+
 TARGET_CHANNEL_IDS = {
     869470698035363840,
     1310800072338051133,
@@ -28,12 +39,18 @@ TARGET_CHANNEL_IDS = {
     1301432300088725555,
 }
 
-# Google Sheets
+# =====================
+# Google Sheets 설정
+# =====================
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SPREADSHEET_ID = "1F2Smu5Z3JbQ5s693meQhHybMhB5vGRLTWKW81uGKgdY"
 SHEET_NAME = "디스코드 동향"
 
-# SQLite
+# =====================
+# SQLite 설정
+# =====================
+
 DB_PATH = "discord_messages.db"
 
 # =====================
@@ -102,6 +119,7 @@ creds_dict = json.loads(GOOGLE_CREDENTIALS)
 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 service = build("sheets", "v4", credentials=creds)
 
+
 def append_to_sheet(data):
     sheet = service.spreadsheets()
     body = {"values": [data]}
@@ -112,6 +130,7 @@ def append_to_sheet(data):
         insertDataOption="INSERT_ROWS",
         body=body
     ).execute()
+
 
 # =====================
 # SQLite
@@ -141,6 +160,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def message_exists(message_id: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -148,6 +168,7 @@ def message_exists(message_id: str) -> bool:
     row = cur.fetchone()
     conn.close()
     return row is not None
+
 
 def save_message(
     message_id: str,
@@ -181,6 +202,7 @@ def save_message(
     conn.commit()
     conn.close()
 
+
 # =====================
 # 번역 / 언어감지 / 분류
 # =====================
@@ -194,6 +216,7 @@ def translate_to_korean(text: str) -> str:
         print("번역 실패:", repr(e))
         return text
 
+
 def detect_language_code(text: str) -> str:
     try:
         if not text or not text.strip():
@@ -201,6 +224,7 @@ def detect_language_code(text: str) -> str:
         return detect(text)
     except Exception:
         return "unknown"
+
 
 def classify_message(content: str):
     text = (content or "").lower()
@@ -217,6 +241,7 @@ def classify_message(content: str):
 
     return "neutral", []
 
+
 # =====================
 # Discord 설정
 # =====================
@@ -228,11 +253,13 @@ intents.messages = True
 
 client = discord.Client(intents=intents)
 
+
 @client.event
 async def on_ready():
     init_db()
     print(f"로그인 완료: {client.user}")
     print("수집 대상 채널 ID:", TARGET_CHANNEL_IDS)
+
 
 @client.event
 async def on_message(message):
@@ -254,17 +281,20 @@ async def on_message(message):
     language_code = detect_language_code(original_text)
     category, matched_keywords = classify_message(original_text)
 
+    collected_at_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    created_at_kst = message.created_at.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S")
+
     row = [
-        datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S"),      # A 수집시간
-        str(message.guild.name) if message.guild else "",  # B 서버명
-        str(message.channel.name),                         # C 채널명
-        str(message.author),                               # D 작성자
-        original_text,                                     # E 원문
-        translated_text,                                   # F 번역
-        language_code,                                     # G 언어코드
-        category,                                          # H 분류
-        ", ".join(matched_keywords),                       # I 매칭 키워드
-        msg_link,                                          # J 메시지 링크
+        collected_at_kst,                                 # A 수집시간
+        str(message.guild.name) if message.guild else "", # B 서버명
+        str(message.channel.name),                        # C 채널명
+        str(message.author),                              # D 작성자
+        original_text,                                    # E 원문
+        translated_text,                                  # F 번역
+        language_code,                                    # G 언어코드
+        category,                                         # H 분류
+        ", ".join(matched_keywords),                      # I 매칭 키워드
+        msg_link,                                         # J 메시지 링크
     ]
 
     try:
@@ -281,8 +311,8 @@ async def on_message(message):
             language_code=language_code,
             category=category,
             matched_keywords=", ".join(matched_keywords),
-            created_at=str(message.created_at),
-            collected_at=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S"),
+            created_at=created_at_kst,
+            collected_at=collected_at_kst,
         )
 
         append_to_sheet(row)
@@ -290,5 +320,6 @@ async def on_message(message):
 
     except Exception as e:
         print("❌ 저장 실패:", repr(e))
+
 
 client.run(DISCORD_TOKEN)
