@@ -87,3 +87,8 @@ async def on_message(message):
         print("❌ 저장 실패:", e)
 
 client.run(DISCORD_TOKEN)
+
+import time
+
+while True:
+    time.sleep(60)
