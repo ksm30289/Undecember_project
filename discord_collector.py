@@ -5,7 +5,7 @@ from datetime import datetime
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 # =====================
 # 환경 변수
@@ -54,14 +54,13 @@ def append_to_sheet(data):
 # 번역 기능
 # =====================
 
-translator = Translator()
-
 def translate_to_korean(text: str) -> str:
     try:
-        result = translator.translate(text, dest='ko')
-        return result.text
+        if not text or not text.strip():
+            return ""
+        return GoogleTranslator(source="auto", target="ko").translate(text)
     except Exception as e:
-        print("번역 실패:", e)
+        print("번역 실패:", repr(e))
         return text  # 👉 실패하면 원문 그대로
 
 # =====================
