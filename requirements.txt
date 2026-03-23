@@ -1,4 +1,5 @@
 requests
+discord.py
 beautifulsoup4
 google-api-python-client
 google-auth
