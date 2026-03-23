@@ -1,7 +1,16 @@
-requests
-discord.py
-beautifulsoup4
-google-api-python-client
-google-auth
-deep-translator
-langdetect
+# Discord
+discord.py==2.3.2
+
+# Crawling
+requests==2.31.0
+beautifulsoup4==4.12.3
+
+# Google Sheets
+google-api-python-client==2.126.0
+google-auth==2.29.0
+
+# Translation
+deep-translator==1.11.4
+
+# Language detection
+langdetect==1.0.9
