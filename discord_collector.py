@@ -1,6 +1,7 @@
 import os
 import json
 import sqlite3
+import re
 import discord
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -9,6 +10,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from deep_translator import GoogleTranslator
 from langdetect import detect, DetectorFactory
+from openai import OpenAI
 
 DetectorFactory.seed = 0
 
@@ -20,12 +22,16 @@ KST = ZoneInfo("Asia/Seoul")
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 if not DISCORD_TOKEN:
     raise RuntimeError("환경변수 DISCORD_TOKEN이 설정되지 않았습니다.")
 
 if not GOOGLE_CREDENTIALS:
     raise RuntimeError("환경변수 GOOGLE_CREDENTIALS가 설정되지 않았습니다.")
+
+if not OPENAI_API_KEY:
+    raise RuntimeError("환경변수 OPENAI_API_KEY가 설정되지 않았습니다.")
 
 # =====================
 # 수집 대상 채널
@@ -46,6 +52,7 @@ TARGET_CHANNEL_IDS = {
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SPREADSHEET_ID = "1F2Smu5Z3JbQ5s693meQhHybMhB5vGRLTWKW81uGKgdY"
 SHEET_NAME = "디스코드 동향"
+GLOSSARY_SHEET_NAME = "용어집"
 
 # =====================
 # SQLite 설정
@@ -59,52 +66,32 @@ DB_PATH = "discord_messages.db"
 
 CATEGORY_KEYWORDS = {
     "bug": [
-        # English
         "bug", "crash", "error", "broken", "glitch", "freeze", "stuck",
         "disconnect", "lag", "failed", "not working",
-
-        # Russian
         "баг", "ошибка", "вылет", "зависает", "лагает", "не работает",
         "сломано", "отключается",
-
-        # Chinese Simplified / Traditional
         "错误", "錯誤", "闪退", "閃退", "卡顿", "卡頓", "崩溃", "崩潰",
         "无法进入", "無法進入", "进不去", "進不去", "无法加载", "無法加載",
         "断线", "斷線", "掉线", "掉線"
     ],
     "issue": [
-        # English
         "problem", "concern", "complaint", "unfair", "pay to win", "p2w",
         "balance", "matchmaking", "too hard", "too easy", "delay",
-
-        # Russian
         "проблема", "жалоба", "нечестно", "баланс", "слишком сложно",
         "слишком легко",
-
-        # Chinese Simplified / Traditional
         "问题", "問題", "不公平", "平衡", "匹配", "太难", "太難", "太简单", "太簡單"
     ],
     "positive": [
-        # English
         "good", "great", "love", "awesome", "nice", "fun", "amazing",
         "excellent", "like it", "well done",
-
-        # Russian
         "хорошо", "отлично", "нравится", "люблю", "супер", "класс",
-
-        # Chinese Simplified / Traditional
         "好玩", "很好", "不错", "不錯", "喜欢", "喜歡", "很棒", "优秀", "優秀"
     ],
     "negative": [
-        # English
         "bad", "terrible", "awful", "hate", "boring", "disappointed",
         "annoying", "frustrating", "worst", "sucks",
-
-        # Russian
         "плохо", "ужасно", "ненавижу", "скучно", "разочарован",
         "раздражает", "худший",
-
-        # Chinese Simplified / Traditional
         "很差", "糟糕", "失望", "无聊", "無聊", "讨厌", "討厭", "很烂", "很爛"
     ]
 }
@@ -112,13 +99,18 @@ CATEGORY_KEYWORDS = {
 CATEGORY_PRIORITY = ["bug", "issue", "negative", "positive"]
 
 # =====================
-# Google 인증
+# Google 인증 / OpenAI
 # =====================
 
 creds_dict = json.loads(GOOGLE_CREDENTIALS)
 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 service = build("sheets", "v4", credentials=creds)
 
+ai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# =====================
+# 시트 기록
+# =====================
 
 def append_to_sheet(data):
     sheet = service.spreadsheets()
@@ -131,6 +123,74 @@ def append_to_sheet(data):
         body=body
     ).execute()
 
+# =====================
+# 용어집
+# =====================
+
+def load_glossary():
+    """
+    용어집 시트:
+    A열 원문 / B열 한국어
+    """
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{GLOSSARY_SHEET_NAME}!A:B"
+        ).execute()
+
+        values = result.get("values", [])
+        glossary = {}
+
+        for row in values:
+            if len(row) < 2:
+                continue
+            src = row[0].strip()
+            dst = row[1].strip()
+            if src and dst:
+                glossary[src] = dst
+
+        print(f"✅ 용어집 로드 완료: {len(glossary)}개")
+        return glossary
+
+    except Exception as e:
+        print("⚠️ 용어집 로드 실패:", repr(e))
+        return {}
+
+GLOSSARY = load_glossary()
+
+def apply_glossary_placeholders(text: str, glossary: dict):
+    """
+    번역 전에 용어를 보호하기 위해 플레이스홀더로 치환.
+    """
+    if not text:
+        return text, {}
+
+    protected_map = {}
+    protected_text = text
+
+    # 긴 용어부터 치환
+    sorted_terms = sorted(glossary.items(), key=lambda x: len(x[0]), reverse=True)
+
+    for idx, (src_term, ko_term) in enumerate(sorted_terms):
+        placeholder = f"__TERM_{idx}__"
+
+        pattern = re.escape(src_term)
+        if re.search(pattern, protected_text, flags=re.IGNORECASE):
+            protected_text = re.sub(
+                pattern,
+                placeholder,
+                protected_text,
+                flags=re.IGNORECASE
+            )
+            protected_map[placeholder] = ko_term
+
+    return protected_text, protected_map
+
+def restore_glossary_placeholders(text: str, protected_map: dict):
+    restored = text
+    for placeholder, ko_term in protected_map.items():
+        restored = restored.replace(placeholder, ko_term)
+    return restored
 
 # =====================
 # SQLite
@@ -160,7 +220,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 def message_exists(message_id: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -168,7 +227,6 @@ def message_exists(message_id: str) -> bool:
     row = cur.fetchone()
     conn.close()
     return row is not None
-
 
 def save_message(
     message_id: str,
@@ -202,20 +260,74 @@ def save_message(
     conn.commit()
     conn.close()
 
-
 # =====================
 # 번역 / 언어감지 / 분류
 # =====================
 
-def translate_to_korean(text: str) -> str:
+def translate_with_google(text: str, glossary: dict) -> str:
     try:
         if not text or not text.strip():
             return ""
-        return GoogleTranslator(source="auto", target="ko").translate(text)
+
+        protected_text, protected_map = apply_glossary_placeholders(text, glossary)
+        translated = GoogleTranslator(source="auto", target="ko").translate(protected_text)
+        return restore_glossary_placeholders(translated, protected_map)
+
     except Exception as e:
-        print("번역 실패:", repr(e))
+        print("구글 번역 실패:", repr(e))
         return text
 
+def translate_with_ai(text: str, glossary: dict, category: str, matched_keywords: list[str]) -> str:
+    try:
+        if not text or not text.strip():
+            return ""
+
+        protected_text, protected_map = apply_glossary_placeholders(text, glossary)
+
+        glossary_text = "\n".join(
+            [f"- {src} → {dst}" for src, dst in glossary.items()]
+        )[:4000]
+
+        keyword_text = ", ".join(matched_keywords)
+
+        prompt = f"""
+너는 게임 커뮤니티 모니터링용 번역가다.
+
+목표:
+- 아래 메시지를 자연스러운 한국어로 번역한다.
+- bug / issue / positive / negative 같은 뉘앙스를 유지한다.
+- 과장하지 말고, 원문의 불만/칭찬/이슈 톤을 보존한다.
+- 플레이스홀더(__TERM_x__)는 절대 변형하지 않는다.
+- 용어집에 해당하는 표현은 한국어 게임 운영 실무 용어로 반영한다.
+
+분류: {category}
+매칭 키워드: {keyword_text}
+
+용어집:
+{glossary_text}
+
+번역할 원문:
+{protected_text}
+""".strip()
+
+        response = ai_client.responses.create(
+            model="gpt-5.4",
+            input=prompt
+        )
+
+        translated = response.output_text.strip()
+        translated = restore_glossary_placeholders(translated, protected_map)
+        return translated
+
+    except Exception as e:
+        print("AI 번역 실패:", repr(e))
+        return translate_with_google(text, glossary)
+
+def translate_to_korean(text: str, category: str, matched_keywords: list[str], glossary: dict) -> str:
+    # 매칭 키워드가 있으면 AI 번역, 없으면 구글 번역
+    if matched_keywords:
+        return translate_with_ai(text, glossary, category, matched_keywords)
+    return translate_with_google(text, glossary)
 
 def detect_language_code(text: str) -> str:
     try:
@@ -224,7 +336,6 @@ def detect_language_code(text: str) -> str:
         return detect(text)
     except Exception:
         return "unknown"
-
 
 def classify_message(content: str):
     text = (content or "").lower()
@@ -241,7 +352,6 @@ def classify_message(content: str):
 
     return "neutral", []
 
-
 # =====================
 # Discord 설정
 # =====================
@@ -253,13 +363,11 @@ intents.messages = True
 
 client = discord.Client(intents=intents)
 
-
 @client.event
 async def on_ready():
     init_db()
     print(f"로그인 완료: {client.user}")
     print("수집 대상 채널 ID:", TARGET_CHANNEL_IDS)
-
 
 @client.event
 async def on_message(message):
@@ -277,9 +385,15 @@ async def on_message(message):
         return
 
     original_text = message.content or ""
-    translated_text = translate_to_korean(original_text)
     language_code = detect_language_code(original_text)
     category, matched_keywords = classify_message(original_text)
+
+    translated_text = translate_to_korean(
+        text=original_text,
+        category=category,
+        matched_keywords=matched_keywords,
+        glossary=GLOSSARY,
+    )
 
     collected_at_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     created_at_kst = message.created_at.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -320,6 +434,5 @@ async def on_message(message):
 
     except Exception as e:
         print("❌ 저장 실패:", repr(e))
-
 
 client.run(DISCORD_TOKEN)
