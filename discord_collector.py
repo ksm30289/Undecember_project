@@ -129,13 +129,18 @@ def append_to_sheet(data):
 
 def load_glossary():
     """
-    용어집 시트:
-    A열 원문 / B열 한국어
+    용어집 구조:
+    A: 한국어
+    B: 영어
+    C: 중국어(간체)
+    D: 중국어(번체)
+    E: 러시아어
     """
+
     try:
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{GLOSSARY_SHEET_NAME}!A:B"
+            range=f"{GLOSSARY_SHEET_NAME}!A:E"
         ).execute()
 
         values = result.get("values", [])
@@ -144,10 +149,17 @@ def load_glossary():
         for row in values:
             if len(row) < 2:
                 continue
-            src = row[0].strip()
-            dst = row[1].strip()
-            if src and dst:
-                glossary[src] = dst
+
+            ko = row[0].strip()
+
+            # 나머지 언어들 → 한국어로 매핑
+            for col in row[1:]:
+                if not col:
+                    continue
+
+                src = col.strip()
+                if src:
+                    glossary[src] = ko
 
         print(f"✅ 용어집 로드 완료: {len(glossary)}개")
         return glossary
