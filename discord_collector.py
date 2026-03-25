@@ -49,7 +49,10 @@ TARGET_CHANNEL_IDS = {
 # Google Sheets 설정
 # =====================
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/cloud-platform"
+]
 SPREADSHEET_ID = "1F2Smu5Z3JbQ5s693meQhHybMhB5vGRLTWKW81uGKgdY"
 SHEET_NAME = "디스코드 동향"
 GLOSSARY_SHEET_NAME = "용어집"
@@ -129,7 +132,7 @@ sheet_creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 service = build("sheets", "v4", credentials=sheet_creds)
 
 # Google Cloud Translation용
-translate_client = translate.Client(credentials=sheet_creds)
+translate_client = translate.Client()
 
 # OpenAI용
 ai_client = OpenAI(api_key=OPENAI_API_KEY)
