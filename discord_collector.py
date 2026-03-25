@@ -132,7 +132,7 @@ sheet_creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 service = build("sheets", "v4", credentials=sheet_creds)
 
 # Google Cloud Translation용
-translate_client = translate.Client()
+translate_client = translate.Client(credentials=sheet_creds)
 
 # OpenAI용
 ai_client = OpenAI(api_key=OPENAI_API_KEY)
