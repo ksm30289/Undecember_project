@@ -2,13 +2,14 @@ import os
 import json
 import sqlite3
 import re
+import html
 import discord
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from deep_translator import GoogleTranslator
+from google.cloud import translate_v2 as translate
 from langdetect import detect, DetectorFactory
 from openai import OpenAI
 
@@ -122,9 +123,15 @@ CATEGORY_PRIORITY = ["bug", "issue", "negative", "positive"]
 # =====================
 
 creds_dict = json.loads(GOOGLE_CREDENTIALS)
-creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-service = build("sheets", "v4", credentials=creds)
 
+# Google Sheets용
+sheet_creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+service = build("sheets", "v4", credentials=sheet_creds)
+
+# Google Cloud Translation용
+translate_client = translate.Client.from_service_account_info(creds_dict)
+
+# OpenAI용
 ai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
@@ -406,17 +413,26 @@ def is_suspicious_translation(original_text: str, translated_text: str):
 # 번역
 # =====================
 
-def translate_with_google(text: str, glossary: dict) -> str:
+def translate_with_google_cloud(text: str, glossary: dict) -> str:
     try:
         if not text or not text.strip():
             return ""
 
         protected_text, protected_map = apply_glossary_placeholders(text, glossary)
-        translated = GoogleTranslator(source="auto", target="ko").translate(protected_text)
-        return restore_glossary_placeholders(translated, protected_map)
+
+        result = translate_client.translate(
+            protected_text,
+            target_language="ko",
+            format_="text"
+        )
+
+        translated = result.get("translatedText", "")
+        translated = html.unescape(translated)
+        translated = restore_glossary_placeholders(translated, protected_map)
+        return translated
 
     except Exception as e:
-        print("구글 번역 실패:", repr(e))
+        print("Google Cloud 번역 실패:", repr(e))
         return text
 
 
@@ -490,8 +506,8 @@ def smart_translate_to_korean(text: str, category: str, matched_keywords: list[s
         first_engine = "AI"
         translated = translate_with_ai(text, glossary, category, matched_keywords, retry=False)
     else:
-        first_engine = "Google"
-        translated = translate_with_google(text, glossary)
+        first_engine = "GoogleCloud"
+        translated = translate_with_google_cloud(text, glossary)
 
     suspicious, reasons = is_suspicious_translation(text, translated)
 
@@ -506,11 +522,11 @@ def smart_translate_to_korean(text: str, category: str, matched_keywords: list[s
     if not suspicious_ai:
         return retry_ai, f"{first_engine}->AI_retry", "retried_ok", ", ".join(reasons)
 
-    retry_google = translate_with_google(text, glossary)
+    retry_google = translate_with_google_cloud(text, glossary)
     suspicious_google, _ = is_suspicious_translation(text, retry_google)
 
     if not suspicious_google:
-        return retry_google, f"{first_engine}->Google_retry", "retried_ok", ", ".join(reasons)
+        return retry_google, f"{first_engine}->GoogleCloud_retry", "retried_ok", ", ".join(reasons)
 
     protected_text, protected_map = apply_glossary_placeholders(text, glossary)
     fallback_text = restore_glossary_placeholders(protected_text, protected_map)
