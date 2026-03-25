@@ -1,8 +1,11 @@
 discord.py==2.3.2
 requests==2.31.0
 beautifulsoup4==4.12.3
+
 google-api-python-client==2.126.0
 google-auth==2.29.0
-deep-translator==1.11.4
+google-auth-httplib2==0.2.0
+google-cloud-translate==2.0.1
+
 langdetect==1.0.9
 openai==1.68.2
