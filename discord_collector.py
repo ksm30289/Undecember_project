@@ -378,23 +378,52 @@ def is_suspicious_translation(original_text: str, translated_text: str):
     if "__TERM_" in trans:
         reasons.append("placeholder_left")
 
-    if len(orig) >= 20 and len(trans) <= 4:
+    # 길이 이상 체크 (완화)
+    if len(orig) >= 25 and len(trans) <= 5:
         reasons.append("too_short")
 
-    if len(orig) >= 10:
+    if len(orig) >= 15:
         ratio = len(trans) / max(len(orig), 1)
-        if ratio < 0.2:
+        if ratio < 0.25:
             reasons.append("length_too_short_vs_original")
         elif ratio > 3.5:
             reasons.append("length_too_long_vs_original")
 
-    english_words_left = re.findall(r"[A-Za-z]{4,}", trans)
-    if len(english_words_left) >= 4:
+    # =========================
+    # 🔥 영어 잔존 검사 (핵심 개선)
+    # =========================
+
+    allowed_terms = {
+        # 게임 공용
+        "pvp", "pve", "afk", "fps", "rpg", "mmorpg",
+        "guild", "clan", "party", "raid", "server",
+        "event", "update", "patch", "quest", "mission",
+        "boss", "stage", "level", "rank", "season",
+
+        # 등급/아이템
+        "ssr", "sr", "r", "ur", "epic", "legendary",
+
+        # 시스템
+        "login", "logout", "reward", "shop", "store",
+
+        # 기타
+        "ok", "gg", "wtf", "lol"
+    }
+
+    english_words = re.findall(r"[A-Za-z]{3,}", trans.lower())
+
+    # 허용 단어 제외
+    filtered = [w for w in english_words if w not in allowed_terms]
+
+    # 🔥 기준 완화 (기존 4 → 8)
+    if len(filtered) >= 8:
         reasons.append("too_many_english_words_left")
 
-    if re.search(r"(.)\1{4,}", trans):
+    # 반복 문자
+    if re.search(r"(.)\1{5,}", trans):
         reasons.append("repeated_chars")
 
+    # 기존 이상 번역 패턴
     weird_patterns = [
         "몇 가지 캐릭터",
         "기본 캐릭터이",
@@ -407,7 +436,6 @@ def is_suspicious_translation(original_text: str, translated_text: str):
             reasons.append(f"weird_pattern:{p}")
 
     return (len(reasons) > 0), reasons
-
 
 # =====================
 # 번역
