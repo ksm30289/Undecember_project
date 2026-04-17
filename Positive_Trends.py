@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from requests.exceptions import ConnectTimeout, ReadTimeout, RequestException
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
@@ -30,10 +31,19 @@ SHEET_NAME = "언디셈버_KR_긍정 동향"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://gall.dcinside.com/",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-MAX_PAGES = 3  # 필요 시 늘려도 됨
+MAX_PAGES = 3           # 필요 시 늘려도 됨
+REQUEST_TIMEOUT = 30    # 기존 15 -> 30
+REQUEST_RETRIES = 3     # 재시도 횟수
+REQUEST_SLEEP = 0.8     # 요청 간 대기시간
 
 # =====================
 # Google 인증
@@ -42,6 +52,38 @@ MAX_PAGES = 3  # 필요 시 늘려도 됨
 creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 CREDS = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 service = build("sheets", "v4", credentials=CREDS)
+
+
+# =====================
+# 공통 요청 함수
+# =====================
+
+def fetch(url, headers=None, retries=REQUEST_RETRIES, timeout=REQUEST_TIMEOUT):
+    """
+    requests.get 공통 래퍼
+    - 타임아웃/일시적 네트워크 오류 재시도
+    - 최종 실패 시 None 반환
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"🌐 요청 시도 ({attempt}/{retries}): {url}")
+            res = requests.get(url, headers=headers, timeout=timeout)
+            res.raise_for_status()
+            return res
+
+        except (ConnectTimeout, ReadTimeout):
+            print(f"⏰ 타임아웃 ({attempt}/{retries}): {url}")
+
+        except RequestException as e:
+            print(f"❌ 요청 실패 ({attempt}/{retries}): {url} / {e}")
+
+        if attempt < retries:
+            sleep_sec = 2 * attempt
+            print(f"⏳ {sleep_sec}초 후 재시도")
+            time.sleep(sleep_sec)
+
+    print(f"🚫 최종 요청 실패: {url}")
+    return None
 
 
 # =====================
@@ -83,6 +125,7 @@ def ensure_header_exists(service, spreadsheet_id, sheet_name):
 
     values = result.get("values", [])
     if values:
+        print("✅ 헤더 이미 존재")
         return
 
     header = [[
@@ -150,8 +193,10 @@ def get_positive_posts_by_date(target_date, keywords):
         print(f"🔄 {page}페이지 요청 중...")
         url = f"https://gall.dcinside.com/mgallery/board/lists/?id={GALLERY_ID}&page={page}"
 
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        res.raise_for_status()
+        res = fetch(url, headers=HEADERS)
+        if res is None:
+            print(f"⚠️ 리스트 페이지 스킵: {url}")
+            continue
 
         soup = BeautifulSoup(res.text, "html.parser")
         rows = soup.select("tr.ub-content")
@@ -159,6 +204,7 @@ def get_positive_posts_by_date(target_date, keywords):
         print(f"📋 게시글 {len(rows)}개 발견")
 
         if not rows:
+            print("📭 게시글이 없어 종료")
             break
 
         for row in rows:
@@ -177,11 +223,19 @@ def get_positive_posts_by_date(target_date, keywords):
                 continue
 
             title = title_tag.get_text(strip=True)
-            link = "https://gall.dcinside.com" + title_tag["href"]
+            href = title_tag.get("href", "").strip()
+            if not href:
+                continue
+
+            link = "https://gall.dcinside.com" + href
 
             try:
-                detail_res = requests.get(link, headers=HEADERS, timeout=15)
-                detail_res.raise_for_status()
+                time.sleep(REQUEST_SLEEP)
+
+                detail_res = fetch(link, headers=HEADERS)
+                if detail_res is None:
+                    print(f"⚠️ 상세 페이지 스킵: {link}")
+                    continue
 
                 detail_soup = BeautifulSoup(detail_res.text, "html.parser")
                 content_tag = detail_soup.select_one("div.write_div")
@@ -209,8 +263,6 @@ def get_positive_posts_by_date(target_date, keywords):
                     summary
                 ])
 
-                time.sleep(0.5)
-
             except Exception as e:
                 print(f"❌ 본문 파싱 실패: {link} / {e}")
 
@@ -224,13 +276,19 @@ def get_positive_posts_by_date(target_date, keywords):
 if __name__ == "__main__":
     print("🎯 대상 날짜:", TARGET_DATE)
 
-    ensure_sheet_exists(service, SPREADSHEET_ID, SHEET_NAME)
-    ensure_header_exists(service, SPREADSHEET_ID, SHEET_NAME)
+    try:
+        ensure_sheet_exists(service, SPREADSHEET_ID, SHEET_NAME)
+        ensure_header_exists(service, SPREADSHEET_ID, SHEET_NAME)
 
-    existing_links = get_existing_links(service, SPREADSHEET_ID, SHEET_NAME)
-    posts = get_positive_posts_by_date(TARGET_DATE, POSITIVE_KEYWORDS)
+        existing_links = get_existing_links(service, SPREADSHEET_ID, SHEET_NAME)
+        posts = get_positive_posts_by_date(TARGET_DATE, POSITIVE_KEYWORDS)
 
-    new_posts = [row for row in posts if row[3] not in existing_links]
+        new_posts = [row for row in posts if row[3] not in existing_links]
 
-    print(f"🆕 신규 게시글 {len(new_posts)}건")
-    append_to_google_sheets(new_posts, SPREADSHEET_ID, SHEET_NAME)
+        print(f"🆕 신규 게시글 {len(new_posts)}건")
+        append_to_google_sheets(new_posts, SPREADSHEET_ID, SHEET_NAME)
+
+        print("🏁 작업 완료")
+
+    except Exception as e:
+        print(f"💥 전체 실행 실패: {e}")
