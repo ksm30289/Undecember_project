@@ -108,7 +108,7 @@ CATEGORY_KEYWORDS = {
     "negative": [
         # English
         "bad", "terrible", "awful", "hate", "boring", "disappointed",
-        "annoying", "frustrating", "worst", "sucks", "fuck",
+        "annoying", "frustrating", "worst", "sucks", "fuck", "trash",
 
         # Russian
         "плохо", "ужасно", "ненавижу", "скучно", "разочарован",
