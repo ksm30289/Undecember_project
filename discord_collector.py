@@ -23,6 +23,7 @@ KST = ZoneInfo("Asia/Seoul")
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 
 if not DISCORD_TOKEN:
     raise RuntimeError("환경변수 DISCORD_TOKEN이 설정되지 않았습니다.")
@@ -474,9 +475,6 @@ def translate_with_ai(text: str, glossary: dict, category: str, matched_keywords
 
         protected_text, protected_map = apply_glossary_placeholders(text, glossary)
 
-        glossary_lines = [f"- {src} → {dst}" for src, dst in list(glossary.items())[:200]]
-        glossary_text = "\n".join(glossary_lines)
-
         keyword_text = ", ".join(matched_keywords) if matched_keywords else "없음"
 
         extra_rule = ""
@@ -505,9 +503,6 @@ def translate_with_ai(text: str, glossary: dict, category: str, matched_keywords
 분류: {category}
 매칭 키워드: {keyword_text}
 
-용어집:
-{glossary_text}
-
 {extra_rule}
 
 원문:
@@ -515,8 +510,9 @@ def translate_with_ai(text: str, glossary: dict, category: str, matched_keywords
 """.strip()
 
         response = ai_client.responses.create(
-            model="gpt-5.4",
-            input=prompt
+            model=OPENAI_MODEL,
+            input=prompt,
+            max_output_tokens=500,
         )
 
         translated = response.output_text.strip()
@@ -603,12 +599,18 @@ async def on_message(message):
     language_code = detect_language_code(original_text)
     category, matched_keywords = classify_message(original_text)
 
-    translated_text, translation_engine, translation_quality, translation_issue_reason = smart_translate_to_korean(
-        text=original_text,
-        category=category,
-        matched_keywords=matched_keywords,
-        glossary=GLOSSARY,
-    )
+    if language_code == "ko":
+        translated_text = original_text
+        translation_engine = "none_ko"
+        translation_quality = "ok"
+        translation_issue_reason = ""
+    else:
+        translated_text, translation_engine, translation_quality, translation_issue_reason = smart_translate_to_korean(
+            text=original_text,
+            category=category,
+            matched_keywords=matched_keywords,
+            glossary=GLOSSARY,
+        )
 
     collected_at_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     created_at_kst = message.created_at.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S")
