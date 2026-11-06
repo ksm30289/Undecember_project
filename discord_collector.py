@@ -658,4 +658,11 @@ async def on_message(message):
     except Exception as e:
         print("❌ 저장 실패:", repr(e))
 
+print("========== DISCORD TOKEN CHECK ==========", flush=True)
+print("환경변수 존재:", bool(DISCORD_TOKEN), flush=True)
+print("앞뒤 공백:", DISCORD_TOKEN != DISCORD_TOKEN.strip(), flush=True)
+print("Bot 접두사:", DISCORD_TOKEN.startswith("Bot "), flush=True)
+print("줄바꿈 포함:", "\n" in DISCORD_TOKEN or "\r" in DISCORD_TOKEN, flush=True)
+print("=========================================", flush=True)
+
 client.run(DISCORD_TOKEN)
