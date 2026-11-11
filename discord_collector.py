@@ -3,6 +3,8 @@ import json
 import sqlite3
 import re
 import html
+import hashlib
+import requests
 import discord
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -653,89 +655,57 @@ async def on_message(message):
         )
 
         append_to_sheet(row)
-        print("✅ DB + 시트 저장 완료:", row)
+        print(f"✅ DB + 시트 저장 완료: message_id={msg_id}")
 
     except Exception as e:
         print("❌ 저장 실패:", repr(e))
 
-print("========== DISCORD TOKEN CHECK ==========", flush=True)
-print("환경변수 존재:", bool(DISCORD_TOKEN), flush=True)
-print("앞뒤 공백:", DISCORD_TOKEN != DISCORD_TOKEN.strip(), flush=True)
-print("Bot 접두사:", DISCORD_TOKEN.startswith("Bot "), flush=True)
-print("줄바꿈 포함:", "\n" in DISCORD_TOKEN or "\r" in DISCORD_TOKEN, flush=True)
-print("=========================================", flush=True)
+# =====================
+# Discord 토큰 진단 / 인증 확인
+# =====================
 
+def check_discord_token() -> bool:
+    """Discord REST API로 토큰 확인. 401은 즉시 종료, 일시적 장애는 Gateway 로그인에 맡김."""
+    print("========== DISCORD TOKEN CHECK ==========", flush=True)
+    print("환경변수 존재:", bool(DISCORD_TOKEN), flush=True)
+    print("앞뒤 공백:", DISCORD_TOKEN != DISCORD_TOKEN.strip(), flush=True)
+    print("Bot 접두사:", DISCORD_TOKEN.startswith("Bot "), flush=True)
+    print("줄바꿈 포함:", "\n" in DISCORD_TOKEN or "\r" in DISCORD_TOKEN, flush=True)
 
-import requests
+    fingerprint = hashlib.sha256(DISCORD_TOKEN.encode("utf-8")).hexdigest()[:12]
+    print(f"[TOKEN CHECK] Fingerprint: {fingerprint}", flush=True)
+    print("=========================================", flush=True)
 
-def check_discord_token():
     print("========== DISCORD AUTH CHECK ==========", flush=True)
-
     try:
         response = requests.get(
             "https://discord.com/api/v10/users/@me",
-            headers={
-                "Authorization": f"Bot {DISCORD_TOKEN}"
-            },
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
             timeout=15,
         )
-
-        print(
-            f"[Discord Auth] HTTP 상태: {response.status_code}",
-            flush=True,
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            print(
-                f"[Discord Auth] 인증 성공 / Bot ID: {data.get('id')}",
-                flush=True,
-            )
-
-        elif response.status_code == 401:
-            print(
-                "[Discord Auth] 인증 실패: 토큰이 거부되었습니다.",
-                flush=True,
-            )
-
-        elif response.status_code == 403:
-            print(
-                "[Discord Auth] 접근 거부: Discord 측 제한 여부 확인 필요",
-                flush=True,
-            )
-
-        elif response.status_code == 429:
-            print(
-                "[Discord Auth] 요청 제한 발생",
-                flush=True,
-            )
-
-        else:
-            print(
-                "[Discord Auth] 예상하지 못한 인증 응답",
-                flush=True,
-            )
-
     except requests.RequestException as exc:
-        print(
-            f"[Discord Auth] 네트워크 오류: {type(exc).__name__}",
-            flush=True,
-        )
+        print(f"[Discord Auth] 네트워크 오류: {type(exc).__name__}", flush=True)
+        print("[Discord Auth] 토큰 무효 판정 불가; Gateway 로그인을 시도합니다.", flush=True)
+        return False
 
-    print("========================================", flush=True)
+    print(f"[Discord Auth] HTTP 상태: {response.status_code}", flush=True)
+    if response.status_code == 200:
+        data = response.json()
+        print(f"[Discord Auth] 인증 성공 / Bot ID: {data.get('id')}", flush=True)
+        return True
+    if response.status_code == 401:
+        print("[Discord Auth] 인증 실패: Discord가 토큰을 거부했습니다.", flush=True)
+        print("[Discord Auth] 잘못된 토큰으로 재로그인하지 않고 종료합니다.", flush=True)
+        raise SystemExit(1)
+    if response.status_code == 429:
+        print("[Discord Auth] 요청 제한(429): 토큰 무효화와 구별해야 합니다.", flush=True)
+    elif response.status_code == 403:
+        print("[Discord Auth] 접근 거부(403): 권한 또는 보안 정책 확인 필요.", flush=True)
+    else:
+        print("[Discord Auth] 예상하지 못한 응답: Gateway 로그인으로 확인합니다.", flush=True)
+    return False
 
-check_discord_token()
 
-
-import hashlib
-
-token_fingerprint = hashlib.sha256(
-    DISCORD_TOKEN.encode("utf-8")
-).hexdigest()[:12]
-
-print(
-    f"[TOKEN CHECK] Fingerprint: {token_fingerprint}",
-    flush=True,
-)
-
-client.run(DISCORD_TOKEN)
+if __name__ == "__main__":
+    check_discord_token()
+    client.run(DISCORD_TOKEN)
