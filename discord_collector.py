@@ -665,4 +665,65 @@ print("Bot 접두사:", DISCORD_TOKEN.startswith("Bot "), flush=True)
 print("줄바꿈 포함:", "\n" in DISCORD_TOKEN or "\r" in DISCORD_TOKEN, flush=True)
 print("=========================================", flush=True)
 
+import requests
+
+def check_discord_token():
+    print("========== DISCORD AUTH CHECK ==========", flush=True)
+
+    try:
+        response = requests.get(
+            "https://discord.com/api/v10/users/@me",
+            headers={
+                "Authorization": f"Bot {DISCORD_TOKEN}"
+            },
+            timeout=15,
+        )
+
+        print(
+            f"[Discord Auth] HTTP 상태: {response.status_code}",
+            flush=True,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            print(
+                f"[Discord Auth] 인증 성공 / Bot ID: {data.get('id')}",
+                flush=True,
+            )
+
+        elif response.status_code == 401:
+            print(
+                "[Discord Auth] 인증 실패: 토큰이 거부되었습니다.",
+                flush=True,
+            )
+
+        elif response.status_code == 403:
+            print(
+                "[Discord Auth] 접근 거부: Discord 측 제한 여부 확인 필요",
+                flush=True,
+            )
+
+        elif response.status_code == 429:
+            print(
+                "[Discord Auth] 요청 제한 발생",
+                flush=True,
+            )
+
+        else:
+            print(
+                "[Discord Auth] 예상하지 못한 인증 응답",
+                flush=True,
+            )
+
+    except requests.RequestException as exc:
+        print(
+            f"[Discord Auth] 네트워크 오류: {type(exc).__name__}",
+            flush=True,
+        )
+
+    print("========================================", flush=True)
+
+
+check_discord_token()
+
 client.run(DISCORD_TOKEN)
