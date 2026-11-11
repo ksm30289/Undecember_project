@@ -665,6 +665,7 @@ print("Bot 접두사:", DISCORD_TOKEN.startswith("Bot "), flush=True)
 print("줄바꿈 포함:", "\n" in DISCORD_TOKEN or "\r" in DISCORD_TOKEN, flush=True)
 print("=========================================", flush=True)
 
+
 import requests
 
 def check_discord_token():
@@ -723,7 +724,18 @@ def check_discord_token():
 
     print("========================================", flush=True)
 
-
 check_discord_token()
+
+
+import hashlib
+
+token_fingerprint = hashlib.sha256(
+    DISCORD_TOKEN.encode("utf-8")
+).hexdigest()[:12]
+
+print(
+    f"[TOKEN CHECK] Fingerprint: {token_fingerprint}",
+    flush=True,
+)
 
 client.run(DISCORD_TOKEN)
